@@ -23,15 +23,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <title>登入</title>
+    <style>
+        /* 使 body 以 Flex 置中，垂直與水平都集中 */
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; /* 使內容能完整置中 */
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        .login-container {
+            text-align: center;
+            border: 1px solid #ccc;
+            padding: 30px;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .error {
+            color: red;
+            margin-bottom: 10px;
+        }
+        input {
+            margin-bottom: 12px;
+            padding: 6px;
+            width: 200px;
+        }
+        button {
+            padding: 8px 16px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #eee;
+        }
+    </style>
 </head>
 <body>
-    <h2>登入簡易網路硬碟</h2>
-    <?php if (isset($error)) echo "<p style='color:red;'>$error</p>"; ?>
-    <form method="POST">
-        帳號: <input type="text" name="username" required><br>
-        密碼: <input type="password" name="password" required><br>
-        <button type="submit">登入</button>
-    </form>
+    <div class="login-container">
+        <h2>登入簡易網路硬碟</h2>
+        <?php if (isset($error)): ?>
+            <p class="error"><?php echo htmlspecialchars($error); ?></p>
+        <?php endif; ?>
+        <form method="POST">
+            <div>
+                <label>帳號：</label><br>
+                <input type="text" name="username" required>
+            </div>
+            <div>
+                <label>密碼：</label><br>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit">登入</button>
+        </form>
+    </div>
 </body>
 </html>
 

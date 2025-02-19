@@ -179,7 +179,11 @@ function getAllFilesRecursively($dir, $baseDir) {
             continue;
         }
         // 排除不需顯示 / 特殊檔
-        if (in_array($item, ['recycle','login.config','index.php','login.php','logout.php','update.history'])) {
+        if (in_array($item, [
+            'recycle', 'login.config', 'index.php',
+            'login.php', 'logout.php', 'update.history',
+            'settings.php' // 不顯示 settings.php
+        ])) {
             continue;
         }
 
@@ -204,9 +208,10 @@ if ($searchQuery === '') {
     // 普通模式
     $allItems = scandir($currentDir);
     $filesOrDirs = array_filter($allItems, function($file) {
+        // 同樣排除 settings.php
         return !in_array($file, [
             '.', '..', 'recycle', 'login.config', 'index.php',
-            'login.php', 'logout.php', 'update.history'
+            'login.php', 'logout.php', 'update.history', 'settings.php'
         ]);
     });
 
@@ -249,17 +254,13 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
         h2 { color: #333; text-align: center; font-size: 28px; margin-bottom: 5px; }
         .path { text-align: center; font-size: 18px; color: #666; }
         .file-list {
-            max-width: 900px; /* 1.5 倍寬度 */
+            max-width: 900px; /* 1.5倍寬度 */
             margin: 0 auto;
             text-align: left;
         }
         ul { list-style: none; padding: 0; margin: 0; }
         
-        /* 
-           使用 nth-child() 交錯背景：
-           1, 3, 5... (odd) -> AliceBlue (#F0F8FF)
-           2, 4, 6... (even) -> White (#FFF)
-        */
+        /* 交錯行背景：1,3,5... (odd) -> AliceBlue; 2,4,6... (even) -> white */
         .file-list ul li:nth-child(odd) {
             background-color: #F0F8FF; /* 很淡的淺藍色 */
         }
@@ -267,11 +268,11 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
             background-color: #FFFFFF;
         }
         
-        li { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            padding: 8px; 
+        li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
             border-bottom: 1px solid #ddd;
         }
         .delete-btn, .info-btn {
@@ -300,6 +301,12 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
         a:hover {
             color: #666;
         }
+        /* 小字體的程式碼下載 */
+        .footer-download {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px; /* 文字變小 */
+        }
     </style>
     <script>
         function confirmDelete(fileName, isFolder) {
@@ -324,7 +331,7 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
     <!-- 標題只顯示文字，無超連結 -->
     <h2>簡易網路硬碟</h2>
 
-    <!-- 在 path 前加一個 Home icon，點擊回根目錄 -->
+    <!-- Home icon, 點擊回根目錄 -->
     <p class="path">
         <a href="?dir=" title="回到根目錄" style="margin-right: 10px; text-decoration: none;">🏠</a>
         <strong>當前路徑：</strong> <?php echo htmlspecialchars($displayPath); ?>
@@ -478,8 +485,17 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
 
     <hr>
 
+    <!-- 在設定 icon 左邊顯示使用者 -->
     <div class="logout">
+        使用者：<?php echo htmlspecialchars($_SESSION['user']); ?> &nbsp; | &nbsp;
+        <a href="settings.php">⚙ 設定</a> &nbsp; | &nbsp;
         <a href="logout.php">🔒 登出</a>
+    </div>
+
+    <!-- 程式碼下載 連結 (字小一點) -->
+    <div class="footer-download">
+        <a href="https://github.com/awaysu/webhdd" target="_blank">程式碼下載</a>
     </div>
 </body>
 </html>
+
