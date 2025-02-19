@@ -7,7 +7,7 @@ sudo apt install php libapache2-mod-php php-mysql php-cli php-mbstring php-xml p
 upload_max_filesize = 100M  
 post_max_size = 120M  
 max_execution_time = 300  
-max_input_time = 300
+max_input_time = 300  
 /etc/apache2/apache2.conf  
 DirectoryIndex index.html index.php  
 LimitRequestBody 104857600  
