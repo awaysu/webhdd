@@ -45,11 +45,11 @@ function removeHistoryRecord($targetFilenames, $historyFile) {
         // 格式：filename|user|time
         $parts = explode('|', $line);
         if (count($parts) !== 3) {
-            continue; // 格式不符合，直接丟棄或保留都可以
+            continue; // 格式不符合，直接跳過或保留都可以
         }
 
         $filename = $parts[0];
-        // 如果檔名不在要刪除的清單內，才保留
+        // 若檔名不在刪除清單內，才保留
         if (!in_array($filename, $targetFilenames, true)) {
             $newLines[] = $line;
         }
@@ -75,11 +75,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['new_folder'])) {
 }
 
 // --------------------------------------------------
-// 2. 處理上傳檔案 + 記錄 update.history
+// 2. 處理上傳檔案 + 記錄 update.history (多檔案)
 // --------------------------------------------------
 $updateHistoryFile = $baseDir . '/update.history';
 
-// 將上傳紀錄讀取到陣列，方便後續顯示（只取最後一筆同檔名紀錄）
+// 將上傳紀錄讀取到陣列，只顯示最後一筆同檔名紀錄
 $uploadInfos = [];
 if (file_exists($updateHistoryFile)) {
     $lines = file($updateHistoryFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -88,7 +88,7 @@ if (file_exists($updateHistoryFile)) {
         $parts = explode('|', $line);
         if (count($parts) === 3) {
             list($filename, $uploader, $uploadTime) = $parts;
-            // 若同檔名有多筆，只留下最後一筆 (最新)
+            // 同檔名多筆時，保留最新一筆
             $uploadInfos[$filename] = [
                 'user' => $uploader,
                 'time' => $uploadTime
@@ -97,54 +97,62 @@ if (file_exists($updateHistoryFile)) {
     }
 }
 
+// 多檔案上傳
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file_upload'])) {
-    if (!empty($_FILES['file_upload']['name'])) {
-        $targetPath = $currentDir . '/' . $_FILES['file_upload']['name'];
-        if (move_uploaded_file($_FILES['file_upload']['tmp_name'], $targetPath)) {
+    $fileCount = count($_FILES['file_upload']['name']);
+    for ($i = 0; $i < $fileCount; $i++) {
+        $fileName = $_FILES['file_upload']['name'][$i];
+        $tmpName  = $_FILES['file_upload']['tmp_name'][$i];
+
+        if (empty($fileName)) {
+            continue; // 若沒選到檔案，跳過
+        }
+
+        $targetPath = $currentDir . '/' . $fileName;
+        if (move_uploaded_file($tmpName, $targetPath)) {
             // 寫入 update.history
-            $record = $_FILES['file_upload']['name']
-                    . '|' . $_SESSION['user']
-                    . '|' . date('Y-m-d H:i:s') . "\n";
+            $record = $fileName . '|' . $_SESSION['user'] . '|' . date('Y-m-d H:i:s') . "\n";
             file_put_contents($updateHistoryFile, $record, FILE_APPEND);
         }
     }
-    // 重新導向以避免表單重送
+    // 上傳後重新導向
     header("Location: ?dir=" . urlencode(str_replace($baseDir, '', $currentDir)));
     exit;
 }
 
 // --------------------------------------------------
-// 3. 處理刪除檔案 / 刪除資料夾（移動到 recycle 資料夾）
+// 3. 處理刪除檔案 / 刪除資料夾 → 回收筒 (加上"時間戳.原本檔名")
 // --------------------------------------------------
+
+// 刪除檔案
 if (isset($_GET['delete'])) {
-    // 刪除單一檔案
     $deleteFile = $_GET['delete'];
     $deletePath = $currentDir . '/' . $deleteFile;
 
     if (file_exists($deletePath) && is_file($deletePath)) {
-        // 1) 移到回收筒
-        rename($deletePath, $recycleDir . '/' . $deleteFile);
+        // 新格式：YYMMDDHHMMSS.原本檔名
+        $newName = date('ymdHis') . '.' . $deleteFile;
+        rename($deletePath, $recycleDir . '/' . $newName);
 
-        // 2) 刪除 update.history 裡相符的紀錄
+        // 移除 update.history 的紀錄
         removeHistoryRecord($deleteFile, $updateHistoryFile);
     }
 
-    // 刪除後重新導向
     header("Location: ?dir=" . urlencode(str_replace($baseDir, '', $currentDir)));
     exit;
 }
 
+// 刪除資料夾
 if (isset($_GET['delete_folder'])) {
-    // 刪除資料夾（可選：連同裡面的檔案紀錄一起刪除）
     $deleteFolder = $_GET['delete_folder'];
     $deleteFolderPath = $currentDir . '/' . $deleteFolder;
 
     if (file_exists($deleteFolderPath) && is_dir($deleteFolderPath)) {
-        // 先將該資料夾移到回收筒 (加上時間戳避免重名)
-        $newRecycleName = $recycleDir . '/' . $deleteFolder . '_' . time();
+        // 同樣時間戳 + '.' + 資料夾名稱
+        $newRecycleName = $recycleDir . '/' . date('ymdHis') . '.' . $deleteFolder;
         rename($deleteFolderPath, $newRecycleName);
 
-        // 如果想同時刪除該資料夾裡所有檔案在 update.history 的紀錄，可以：
+        // 資料夾裡所有檔案也要從 update.history 移除
         $folderFiles = [];
         $rii = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($newRecycleName));
         foreach ($rii as $fileInfo) {
@@ -155,13 +163,12 @@ if (isset($_GET['delete_folder'])) {
         removeHistoryRecord($folderFiles, $updateHistoryFile);
     }
 
-    // 刪除後重新導向
     header("Location: ?dir=" . urlencode(str_replace($baseDir, '', $currentDir)));
     exit;
 }
 
 // --------------------------------------------------
-// 4. 定義：取得目錄下(含子目錄)所有檔案（遞迴）
+// 4. 取得目錄下(含子目錄)所有檔案（遞迴）
 // --------------------------------------------------
 function getAllFilesRecursively($dir, $baseDir) {
     $results = [];
@@ -171,17 +178,16 @@ function getAllFilesRecursively($dir, $baseDir) {
         if ($item === '.' || $item === '..') {
             continue;
         }
-        // 排除一些不顯示或不處理的特殊檔
+        // 排除不需顯示 / 特殊檔
         if (in_array($item, ['recycle','login.config','index.php','login.php','logout.php','update.history'])) {
             continue;
         }
 
         $fullPath = $dir . '/' . $item;
         if (is_dir($fullPath)) {
-            // 遞迴往下搜子目錄
+            // 遞迴往下
             $results = array_merge($results, getAllFilesRecursively($fullPath, $baseDir));
         } else {
-            // 只要「檔案」的相對路徑
             $relative = str_replace($baseDir, '', $fullPath);
             $results[] = $relative;
         }
@@ -190,46 +196,45 @@ function getAllFilesRecursively($dir, $baseDir) {
 }
 
 // --------------------------------------------------
-// 5. 搜尋邏輯：若無關鍵字，顯示當前資料夾；若有關鍵字，遞迴搜索
+// 5. 搜尋邏輯：若無搜尋關鍵字 -> 顯示當前目錄；有 -> 遞迴搜尋
 // --------------------------------------------------
 $searchQuery = isset($_GET['search']) ? trim($_GET['search']) : '';
 
 if ($searchQuery === '') {
-    // 沒有搜尋：顯示當前資料夾
+    // 普通模式
     $allItems = scandir($currentDir);
-    // 過濾要顯示的檔案/資料夾
     $filesOrDirs = array_filter($allItems, function($file) {
         return !in_array($file, [
-            '.', '..', 'recycle', 'login.config', 'index.php', 
+            '.', '..', 'recycle', 'login.config', 'index.php',
             'login.php', 'logout.php', 'update.history'
         ]);
     });
 
-    $listMode = 'normal';  // 顯示檔案＆資料夾
+    $listMode = 'normal';
     $itemsForDisplay = $filesOrDirs;
 } else {
-    // 有搜尋：顯示符合條件的所有檔案(含子目錄)
+    // 搜尋模式
     $allFiles = getAllFilesRecursively($currentDir, $baseDir);
 
-    // 根據關鍵字過濾(不分大小寫)，只針對檔名（basename）比對
+    // 不分大小寫，比對檔名
     $matchedFiles = array_filter($allFiles, function($relPath) use ($searchQuery) {
         $filename = basename($relPath);
         return stripos($filename, $searchQuery) !== false;
     });
 
-    $listMode = 'search';  // 只顯示檔案
+    $listMode = 'search';
     $itemsForDisplay = $matchedFiles;
 }
 
-// 處理當前路徑的顯示
+// 顯示用的路徑（相對 $baseDir）
 $displayPath = str_replace($baseDir, '', $currentDir);
 $displayPath = $displayPath ? $displayPath : '/';
 
 // --------------------
 // 副檔名分流：
-//   - txt、pdf：在新視窗開啟 (target="_blank")，不加 download
-//   - doc, docx, xls, xlsx, ppt, pptx：直接下載 (加 download)
-//   - 其餘視需要加到清單或預設下載
+//   - txt、pdf -> 新分頁 (target="_blank")
+//   - doc, docx, xls, xlsx, ppt, pptx -> 強制下載 (download)
+//   - 其餘依需求自行調整
 // --------------------
 $openInNewTab = ['txt', 'pdf']; 
 $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
@@ -243,9 +248,32 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
         body { font-family: Arial, sans-serif; margin: 20px; }
         h2 { color: #333; text-align: center; font-size: 28px; margin-bottom: 5px; }
         .path { text-align: center; font-size: 18px; color: #666; }
-        .file-list { max-width: 600px; margin: 0 auto; text-align: left; }
-        ul { list-style: none; padding: 0; }
-        li { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid #ddd; }
+        .file-list {
+            max-width: 900px; /* 1.5 倍寬度 */
+            margin: 0 auto;
+            text-align: left;
+        }
+        ul { list-style: none; padding: 0; margin: 0; }
+        
+        /* 
+           使用 nth-child() 交錯背景：
+           1, 3, 5... (odd) -> AliceBlue (#F0F8FF)
+           2, 4, 6... (even) -> White (#FFF)
+        */
+        .file-list ul li:nth-child(odd) {
+            background-color: #F0F8FF; /* 很淡的淺藍色 */
+        }
+        .file-list ul li:nth-child(even) {
+            background-color: #FFFFFF;
+        }
+        
+        li { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 8px; 
+            border-bottom: 1px solid #ddd;
+        }
         .delete-btn, .info-btn {
             background: none;
             border: none;
@@ -293,16 +321,19 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
     </script>
 </head>
 <body>
-    <!-- 點擊標題 -> 回到根目錄 (dir=空) -->
-    <h2><a href="?dir=">簡易網路硬碟</a></h2>
+    <!-- 標題只顯示文字，無超連結 -->
+    <h2>簡易網路硬碟</h2>
 
-    <p class="path"><strong>當前路徑：</strong> <?php echo htmlspecialchars($displayPath); ?></p>
+    <!-- 在 path 前加一個 Home icon，點擊回根目錄 -->
+    <p class="path">
+        <a href="?dir=" title="回到根目錄" style="margin-right: 10px; text-decoration: none;">🏠</a>
+        <strong>當前路徑：</strong> <?php echo htmlspecialchars($displayPath); ?>
+    </p>
     <hr>
 
     <!-- 搜尋表單 -->
     <div class="search-form">
         <form method="GET">
-            <!-- 保留當前資料夾路徑 (dir) -->
             <input type="hidden" name="dir" value="<?php echo isset($_GET['dir']) ? htmlspecialchars($_GET['dir']) : ''; ?>">
             <input type="text" name="search" placeholder="搜尋檔案" value="<?php echo htmlspecialchars($searchQuery); ?>">
             <button type="submit">搜尋</button>
@@ -312,7 +343,7 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
     <div class="file-list">
         <ul>
             <?php if ($listMode === 'normal'): ?>
-                <!-- 普通模式，顯示資料夾/檔案清單 -->
+                <!-- 普通模式：顯示當前資料夾的檔案/子目錄 -->
                 <?php if ($currentDir !== $baseDir): ?>
                     <li>
                         <a href="?dir=<?php echo urlencode(dirname(str_replace($baseDir, '', $currentDir))); ?>">
@@ -322,19 +353,17 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
                 <?php endif; ?>
 
                 <?php foreach ($itemsForDisplay as $file):
-                    $filePath = $currentDir . '/' . $file;    // 實體路徑
+                    $filePath = $currentDir . '/' . $file;
                     $relPath = str_replace($baseDir, '', $filePath);
                     $fullURL = $baseURL . ltrim($relPath, '/');
                     $isDir = is_dir($filePath);
 
-                    // 取得副檔名 (小寫)
+                    // 副檔名
                     $extension = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-
-                    // 檢查要不要新開分頁、或是直接下載
                     $needNewTab  = in_array($extension, $openInNewTab);
                     $needDownload = in_array($extension, $forceDownload);
 
-                    // 從 update.history 取出上傳資訊
+                    // 取出該檔在 update.history 的上傳者/時間
                     $infoUser = isset($uploadInfos[$file]) ? $uploadInfos[$file]['user'] : '不明';
                     $infoTime = isset($uploadInfos[$file]) ? $uploadInfos[$file]['time'] : '不明';
                 ?>
@@ -346,7 +375,6 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
                                 </a>
                             <?php else: ?>
                                 📄 
-                                <!-- 針對 txt, pdf -> target="_blank"；針對 doc, xls, ppt -> download；其餘自行決定 -->
                                 <a href="<?php echo htmlspecialchars($fullURL); ?>"
                                    <?php echo $needNewTab ? 'target="_blank"' : ''; ?>
                                    <?php echo $needDownload ? 'download' : ''; ?>>
@@ -377,12 +405,11 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
                 <?php endforeach; ?>
 
             <?php else: ?>
-                <!-- 搜尋模式，顯示所有符合檔案(含子目錄) -->
+                <!-- 搜尋模式：顯示符合關鍵字的檔案列表(含子目錄) -->
                 <li><em>以下為「<?php echo htmlspecialchars($searchQuery); ?>」的搜尋結果：</em></li>
                 <?php foreach ($itemsForDisplay as $relPath):
-                    // $relPath 例如 /子資料夾/xxx.txt
                     $filename = basename($relPath);
-                    $fullFilePath = $baseDir . $relPath;  // 實體路徑
+                    $fullFilePath = $baseDir . $relPath;
                     $fullURL = $baseURL . ltrim($relPath, '/');
 
                     // 副檔名
@@ -430,7 +457,7 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
 
     <hr>
 
-    <!-- 只有在「非搜尋模式」下才顯示管理功能 -->
+    <!-- 管理功能 (只有在非搜尋模式才顯示) -->
     <?php if ($searchQuery === ''): ?>
         <div class="bottom-section">
             <h3>📂 管理文件</h3>
@@ -441,9 +468,9 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
                 <button type="submit">📁 建立目錄</button>
             </form>
 
-            <!-- 上傳檔案 -->
+            <!-- 多檔案上傳 -->
             <form method="POST" enctype="multipart/form-data">
-                <input type="file" name="file_upload" required>
+                <input type="file" name="file_upload[]" multiple required>
                 <button type="submit">📤 上傳檔案</button>
             </form>
         </div>
@@ -456,4 +483,3 @@ $forceDownload = ['doc','docx','xls','xlsx','ppt','pptx'];
     </div>
 </body>
 </html>
-
